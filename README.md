@@ -1,4 +1,4 @@
-# Bi-directional Coroutine library
+# Bi-directional Coroutine Library for C++
 
 Has Boost.Context as a dependency.
 
