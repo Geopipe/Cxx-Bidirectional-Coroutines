@@ -1,79 +1,69 @@
-//
-//  main.cpp
-//  BoostCallCCTests
-//
-//  Created by Thomas Dickerson on 4/24/18.
-//  Copyright © 2018 Geopipe. All rights reserved.
-//
-
 #include <iostream>
 
 #include <BidirectionalCoroutine.hpp>
 
-using com::geopipe::functional::SymmetricCoroutine;
+using com::geopipe::functional::BidirectionalCoroutine;
 using boost::context::continuation;
 
-class Fibonacci : public SymmetricCoroutine<int> {
+class Fibonacci : public BidirectionalCoroutine<int> {
 public:
-	Fibonacci() : SymmetricCoroutine<int>([this](continuation && yield) -> continuation && {
+	Fibonacci() : BidirectionalCoroutine<int>([this](continuation && to) -> continuation && {
 		int a = 0;
 		int b = 1;
-		for(;;) {
-			yield=yield.resume();
-			setReturnValue(a);
+		for(yield(to);(yield(to,a),true);) {
 			int next = a + b;
 			a = b;
 			b = next;
 		}
-		return std::move(yield);
+		return std::move(to);
 	}) {}
 };
 
-class RunningBitCount : public SymmetricCoroutine<size_t, bool> {
+class RunningBitCount : public BidirectionalCoroutine<size_t, bool> {
 public:
-	RunningBitCount() : SymmetricCoroutine<size_t, bool>([this](continuation && yield) -> continuation && {
+	RunningBitCount() : BidirectionalCoroutine<size_t, bool>([this](continuation && to) -> continuation && {
 		size_t a = 0;
-		for(;;) {
-			yield=yield.resume();
-			a += std::get<0>(getArgValues());
-			setReturnValue(a);
-		}
-		return std::move(yield);
+		for(auto args = yield(to);;args = (yield(to,std::get<0>(args) ? (++a) : a)));
+		return std::move(to);
 	}) {}
 };
 
-class NoiseMaker : public SymmetricCoroutine<void, std::string, size_t> {
+class NoiseMaker : public BidirectionalCoroutine<void, std::string, size_t> {
 public:
-	NoiseMaker() : SymmetricCoroutine<void, std::string, size_t>([this](continuation && yield) -> continuation && {
-		for(;;){
-			yield = yield.resume();
-			std::string foo;
-			size_t bar;
-			std::tie(foo, bar) = getArgValues();
+	NoiseMaker() : BidirectionalCoroutine<void, std::string, size_t>([this](continuation && to) -> continuation && {
+		std::string foo; size_t bar;
+		while(true){
+			std::tie(foo, bar) = yield(to);
 			std::cout << foo << "/" << bar << std::endl;
 		}
+		return std::move(to);
 	}) {}
 };
 
 int main(int argc, const char * argv[]) {
-	// insert code here...
-	std::cout << "Fibs" << std::endl;
-	Fibonacci fib;
-	for(size_t j = 0; j < 10; ++j) {
-		std::cout << fib() << std ::endl;
+	{
+		std::cout << "Fibs" << std::endl;
+		Fibonacci fib;
+		for(size_t j = 0; j < 10; ++j) {
+			std::cout << fib() << std ::endl;
+		}
 	}
 	
-	std::cout << "RBC" << std::endl;
-	RunningBitCount rbc;
-	bool bits[7] = { true, false, false, true, true, false, true};
-	for(size_t j = 0; j < 7; ++j){
-		std::cout << rbc(bits[j]) << std::endl;
+	{
+		std::cout << "RBC" << std::endl;
+		RunningBitCount rbc;
+		bool bits[7] = { true, false, false, true, true, false, true};
+		for(size_t j = 0; j < 7; ++j){
+			std::cout << rbc(bits[j]) << std::endl;
+		}
 	}
 	
-	std::cout << "Noise" << std::endl;
-	NoiseMaker nm;
-	for(size_t j = 0; j < 7; ++j){
-		nm("Moo", j);
+	{
+		std::cout << "Noise" << std::endl;
+		NoiseMaker nm;
+		for(size_t j = 0; j < 7; ++j){
+			nm("Moo", j);
+		}
 	}
 	
 	return 0;

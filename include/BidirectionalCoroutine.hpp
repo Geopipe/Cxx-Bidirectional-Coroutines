@@ -27,30 +27,38 @@ namespace com {
 	namespace geopipe {
 		namespace functional {
 			
-			template<class R, class ...Args> class SymmetricCoroutine : protected SymmetricCoroutine<void, Args...> {
+			template<class R, class ...Args> class BidirectionalCoroutine : protected BidirectionalCoroutine<void, Args...> {
 				R ret_;
 			protected:
-				void setReturnValue(R& r){ ret_ = r; }
+				using BidirectionalCoroutine<void, Args...>::yield;
+				
+				std::tuple<Args...>& yield(boost::context::continuation& to, R& r) {
+					ret_ = r;
+					return yield(to);
+				}
 				
 			public:
-				template<class F> SymmetricCoroutine(F f) : SymmetricCoroutine<void, Args...>(f) {}
+				template<class F> BidirectionalCoroutine(F f) : BidirectionalCoroutine<void, Args...>(f) {}
 				
 				R operator()(Args ...args){
-					(*(SymmetricCoroutine<void, Args...>*)(this))(args...);
+					(*(BidirectionalCoroutine<void, Args...>*)(this))(args...);
 					return ret_;
 				}
 				
 			};
 			
-			template<class ...Args> class SymmetricCoroutine<void, Args...> {
+			template<class ...Args> class BidirectionalCoroutine<void, Args...> {
 				boost::context::continuation next_;
 				std::tuple<Args...> args_;
 				
 			protected:
-				const std::tuple<Args...>& getArgValues() const { return args_; }
+				std::tuple<Args...>& yield(boost::context::continuation& to) {
+					to = to.resume();
+					return args_;
+				}
 				
 			public:
-				template<class F> SymmetricCoroutine(F f) : next_(boost::context::callcc(f)) {}
+				template<class F> BidirectionalCoroutine(F f) : next_(boost::context::callcc(f)) {}
 				
 				void operator()(Args ...args){
 					args_ = std::make_tuple(args...);
