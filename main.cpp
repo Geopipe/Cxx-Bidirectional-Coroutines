@@ -7,36 +7,33 @@ using boost::context::continuation;
 
 class Fibonacci : public BidirectionalCoroutine<int> {
 public:
-	Fibonacci() : BidirectionalCoroutine<int>([this](continuation && to) -> continuation && {
+	Fibonacci() : BidirectionalCoroutine<int>([this](BidirectionalCoroutine<int>::Yield & yield) {
 		int a = 0;
 		int b = 1;
-		for(yield(to);(yield(to,a),true);) {
+		for(yield();(yield(a),true);) {
 			int next = a + b;
 			a = b;
 			b = next;
 		}
-		return std::move(to);
 	}) {}
 };
 
 class RunningBitCount : public BidirectionalCoroutine<size_t, bool> {
 public:
-	RunningBitCount() : BidirectionalCoroutine<size_t, bool>([this](continuation && to) -> continuation && {
+	RunningBitCount() : BidirectionalCoroutine<size_t, bool>([this](BidirectionalCoroutine<size_t,bool>::Yield &yield) {
 		size_t a = 0;
-		for(auto args = yield(to);;args = (yield(to,std::get<0>(args) ? (++a) : a)));
-		return std::move(to);
+		for(auto args = yield();;args = (yield(std::get<0>(args) ? (++a) : a)));
 	}) {}
 };
 
 class NoiseMaker : public BidirectionalCoroutine<void, std::string, size_t> {
 public:
-	NoiseMaker() : BidirectionalCoroutine<void, std::string, size_t>([this](continuation && to) -> continuation && {
+	NoiseMaker() : BidirectionalCoroutine<void, std::string, size_t>([this](BidirectionalCoroutine<void, std::string, size_t>::Yield &yield) {
 		std::string foo; size_t bar;
 		while(true){
-			std::tie(foo, bar) = yield(to);
+			std::tie(foo, bar) = yield();
 			std::cout << foo << "/" << bar << std::endl;
 		}
-		return std::move(to);
 	}) {}
 };
 
