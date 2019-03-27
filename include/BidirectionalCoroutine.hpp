@@ -19,6 +19,7 @@
  ************************************************************************************/
 
 #include <tuple>
+#include <type_traits>
 #include <utility>
 
 #include <boost/context/continuation.hpp>
@@ -28,10 +29,13 @@ namespace com {
 		namespace functional {
 			
 			namespace detail {
-				template<class BDC, class F> boost::context::continuation startCoroutine(BDC& bdc, F f){
+				template<class Coro> class FinishCoroutine;
+				
+				
+				template<class Coro, class F> boost::context::continuation startCoroutine(Coro& bdc, F & f){
 					return boost::context::callcc([&](boost::context::continuation && c){
-						typename BDC::Yield yield(bdc, std::move(c));
-						f(yield);
+						typename Coro::Yield yield(bdc, std::move(c));
+						FinishCoroutine<Coro>::apply(yield,f);
 						return std::move(yield.to_);
 					});
 				}
@@ -74,7 +78,7 @@ namespace com {
 			public:
 				class Yield {
 					template<class Rp, class ...ArgsP> friend class BidirectionalCoroutine;
-					template<class BDCp, class Fp> friend boost::context::continuation detail::startCoroutine(BDCp&, Fp);
+					template<class BDCp, class Fp> friend boost::context::continuation detail::startCoroutine(BDCp&, Fp&);
 					BidirectionalCoroutine<void, Args...> &handle_;
 					boost::context::continuation to_;
 				public:
@@ -96,6 +100,34 @@ namespace com {
 					next_ = next_.resume();
 				}
 			};
+			
+			namespace detail {
+				template<class R, class ...Args> class FinishCoroutine<com::geopipe::functional::BidirectionalCoroutine<R, Args...>> {
+					
+					using Coro = com::geopipe::functional::BidirectionalCoroutine<R, Args...>;
+					using Yield = typename Coro::Yield;
+					template<class F, class ...FArgs> using RType = decltype((std::declval<F>())(std::declval<FArgs>() ...));
+					
+				public:
+					template<class F, typename std::enable_if<std::is_assignable<RType<F&, Yield&>, R>::value,int>::type = 0>
+					static void apply(Yield & yield, F & f) {
+						yield(f(yield)); // If our lambda returns a value, *and* we know what to do with it, assign it
+					}
+					
+					
+					template<class F, typename std::enable_if<std::is_void<RType<F&,Yield&>>::value,int>::type =0>
+					static void apply(Yield & yield, F & f) {
+						f(yield); // If our lambda doesn't return a value, ignore it.
+					}
+					
+					
+					template<class F, typename std::enable_if<!std::is_void<RType<F&,Yield&>>::value && !std::is_assignable<RType<F&, Yield&>, R>::value,int>::type =0>
+					static void apply(Yield & yield, F & f) {
+						static_assert(std::is_void<RType<F&,Yield&>>::value || std::is_assignable<RType<F&, Yield&>, R>::value,"return type of f must be void, or assignable to the return type of this coroutine");
+						f(yield); // This will never execute.
+					}
+				};
+			}
 
 		}
 	}
