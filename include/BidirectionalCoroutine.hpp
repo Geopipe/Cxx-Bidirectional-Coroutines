@@ -31,80 +31,90 @@ namespace com {
 			namespace detail {
 				template<class Coro> class FinishCoroutine;
 				
-				
-				template<class Coro, class F> boost::context::continuation startCoroutine(Coro& bdc, F & f){
-					return boost::context::callcc([&](boost::context::continuation && c){
-						typename Coro::Yield yield(bdc, std::move(c));
-						FinishCoroutine<Coro>::apply(yield,f);
-						return std::move(yield.to_);
-					});
-				}
+				template<class StackAlloc> struct _CoroutineContext {
+					template<class Coro, class F>
+					static boost::context::continuation startCoroutine(Coro& bdc, F & f, size_t stackSize){
+						return boost::context::callcc(std::allocator_arg, StackAlloc(stackSize), [&](boost::context::continuation && c){
+							typename Coro::Yield yield(bdc, std::move(c));
+							FinishCoroutine<Coro>::apply(yield,f);
+							return std::move(yield.to_);
+						});
+					}
+				};
 			}
 			
-			template<class R, class ...Args> class BidirectionalCoroutine : protected BidirectionalCoroutine<void, Args...> {
-				R ret_;
-			protected:
-				using YieldVoid = typename BidirectionalCoroutine<void, Args...>::Yield;
+			template<class StackAlloc = boost::context::fixedsize_stack>
+			struct CoroutineContext {
+				using traits_type = typename StackAlloc::traits_type;
 				
-			public:
-				class Yield : public YieldVoid {
-					using YieldVoid::handle_;
+				template<class R, class ...Args> class BidirectionalCoroutine : protected BidirectionalCoroutine<void, Args...> {
+					R ret_;
+				protected:
+					using YieldVoid = typename BidirectionalCoroutine<void, Args...>::Yield;
+					
 				public:
-					Yield(BidirectionalCoroutine<R, Args...> &handle, boost::context::continuation && to) : YieldVoid(handle, std::move(to)) {}
+					class Yield : public YieldVoid {
+						using YieldVoid::handle_;
+					public:
+						Yield(BidirectionalCoroutine<R, Args...> &handle, boost::context::continuation && to) : YieldVoid(handle, std::move(to)) {}
+						
+						template<class RP> std::tuple<Args...>& operator()(RP&& r) {
+							static_cast<BidirectionalCoroutine<R,Args...> &>(handle_).ret_ = std::forward<RP>(r);
+							return (*(YieldVoid*)this)();
+						}
+						using YieldVoid::operator();
+						
+						
+					};
 					
-					template<class RP> std::tuple<Args...>& operator()(RP&& r) {
-						static_cast<BidirectionalCoroutine<R,Args...> &>(handle_).ret_ = std::forward<RP>(r);
-						return (*(YieldVoid*)this)();
-					}
-					using YieldVoid::operator();
+					template<class F> BidirectionalCoroutine(F f, size_t stackSize = traits_type::default_size()) : BidirectionalCoroutine<void, Args...>(detail::_CoroutineContext<StackAlloc>::startCoroutine(*this, f, stackSize)) {}
 					
-					
-				};
-				
-				template<class F> BidirectionalCoroutine(F f) : BidirectionalCoroutine<void, Args...>(detail::startCoroutine(*this, f)) {}
-				
-				R operator()(Args ...args){
-					(*(BidirectionalCoroutine<void, Args...>*)(this))(args...);
-					return ret_;
-				}
-				
-			};
-			
-			template<class ...Args> class BidirectionalCoroutine<void, Args...> {
-				boost::context::continuation next_;
-				std::tuple<Args...> args_;
-			protected:
-				BidirectionalCoroutine(boost::context::continuation && next) : next_(std::move(next)) {}
-			public:
-				class Yield {
-					template<class Rp, class ...ArgsP> friend class BidirectionalCoroutine;
-					template<class BDCp, class Fp> friend boost::context::continuation detail::startCoroutine(BDCp&, Fp&);
-					BidirectionalCoroutine<void, Args...> &handle_;
-					boost::context::continuation to_;
-				public:
-					Yield(BidirectionalCoroutine<void, Args...> &handle, boost::context::continuation && to) : handle_(handle), to_(std::move(to)) {}
-					
-					std::tuple<Args...>& operator()() {
-						to_ = to_.resume();
-						return handle_.args_;
+					R operator()(Args ...args){
+						(*(BidirectionalCoroutine<void, Args...>*)(this))(args...);
+						return ret_;
 					}
 					
 				};
 				
-				template<class F> BidirectionalCoroutine(F f) {
-					next_ = detail::startCoroutine(*this, f);
-				}
-				
-				void operator()(Args ...args){
-					args_ = std::make_tuple(args...);
-					next_ = next_.resume();
-				}
+				template<class ...Args> class BidirectionalCoroutine<void, Args...> {
+					boost::context::continuation next_;
+					std::tuple<Args...> args_;
+				protected:
+					BidirectionalCoroutine(boost::context::continuation && next) : next_(std::move(next)) {}
+				public:
+					class Yield {
+						template<class Rp, class ...ArgsP>
+						friend class BidirectionalCoroutine;
+						friend struct detail::_CoroutineContext<StackAlloc>;
+						
+						BidirectionalCoroutine<void, Args...> &handle_;
+						boost::context::continuation to_;
+					public:
+						Yield(BidirectionalCoroutine<void, Args...> &handle, boost::context::continuation && to) : handle_(handle), to_(std::move(to)) {}
+						
+						std::tuple<Args...>& operator()() {
+							to_ = to_.resume();
+							return handle_.args_;
+						}
+						
+					};
+					
+					template<class F> BidirectionalCoroutine(F f, size_t stackSize = traits_type::default_size()) {
+						next_ = detail::_CoroutineContext<StackAlloc>::startCoroutine(*this, f, stackSize);
+					}
+					
+					void operator()(Args ...args){
+						args_ = std::make_tuple(args...);
+						next_ = next_.resume();
+					}
+				};
 			};
 			
 			namespace detail {
-				template<class R, class ...Args> class FinishCoroutine<com::geopipe::functional::BidirectionalCoroutine<R, Args...>> {
+				template<template<class R, class ...Args> class BidirectionalCoroutine, class R, class ...Args>
+				class FinishCoroutine<BidirectionalCoroutine<R, Args...>> {
 					
-					using Coro = com::geopipe::functional::BidirectionalCoroutine<R, Args...>;
+					using Coro = BidirectionalCoroutine<R, Args...>;
 					using Yield = typename Coro::Yield;
 					template<class F, class ...FArgs> using RType = decltype((std::declval<F>())(std::declval<FArgs>() ...));
 					

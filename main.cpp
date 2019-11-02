@@ -2,12 +2,12 @@
 
 #include <BidirectionalCoroutine.hpp>
 
-using com::geopipe::functional::BidirectionalCoroutine;
-using boost::context::continuation;
+template<typename R, typename ...Args>
+using BidirectionalCoroutine = com::geopipe::functional::CoroutineContext<>::BidirectionalCoroutine<R, Args...>;
 
 class Fibonacci : public BidirectionalCoroutine<int> {
 public:
-	Fibonacci() : BidirectionalCoroutine<int>([this](BidirectionalCoroutine<int>::Yield & yield) {
+	Fibonacci() : BidirectionalCoroutine<int>([](BidirectionalCoroutine<int>::Yield & yield) {
 		int a = 0;
 		int b = 1;
 		for(yield();(yield(a),true);) {
@@ -20,7 +20,7 @@ public:
 
 class RunningBitCount : public BidirectionalCoroutine<size_t, bool> {
 public:
-	RunningBitCount() : BidirectionalCoroutine<size_t, bool>([this](BidirectionalCoroutine<size_t,bool>::Yield &yield) {
+	RunningBitCount() : BidirectionalCoroutine<size_t, bool>([](BidirectionalCoroutine<size_t,bool>::Yield &yield) {
 		size_t a = 0;
 		for(auto args = yield();;args = (yield(std::get<0>(args) ? (++a) : a)));
 	}) {}
@@ -28,7 +28,7 @@ public:
 
 class NoiseMaker : public BidirectionalCoroutine<void, std::string, size_t> {
 public:
-	NoiseMaker() : BidirectionalCoroutine<void, std::string, size_t>([this](BidirectionalCoroutine<void, std::string, size_t>::Yield &yield) {
+	NoiseMaker() : BidirectionalCoroutine<void, std::string, size_t>([](BidirectionalCoroutine<void, std::string, size_t>::Yield &yield) {
 		std::string foo; size_t bar;
 		while(true){
 			std::tie(foo, bar) = yield();
