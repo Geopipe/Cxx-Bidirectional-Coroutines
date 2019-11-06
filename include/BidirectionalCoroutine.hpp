@@ -74,6 +74,10 @@ namespace com {
 						return ret_;
 					}
 					
+					explicit operator bool() const {
+						return BidirectionalCoroutine<void, Args...>::next_;
+					}
+					
 				};
 				
 				template<class ...Args> class BidirectionalCoroutine<void, Args...> {
@@ -106,6 +110,10 @@ namespace com {
 					void operator()(Args ...args){
 						args_ = std::make_tuple(args...);
 						next_ = next_.resume();
+					}
+					
+					explicit operator bool() const {
+						return next_;
 					}
 				};
 			};
