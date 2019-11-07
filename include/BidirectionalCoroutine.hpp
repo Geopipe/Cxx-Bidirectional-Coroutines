@@ -75,7 +75,7 @@ namespace com {
 					}
 					
 					explicit operator bool() const {
-						return BidirectionalCoroutine<void, Args...>::next_;
+						return (bool)(BidirectionalCoroutine<void, Args...>&)(*this);
 					}
 					
 				};
@@ -113,7 +113,7 @@ namespace com {
 					}
 					
 					explicit operator bool() const {
-						return next_;
+						return (bool)next_;
 					}
 				};
 			};
