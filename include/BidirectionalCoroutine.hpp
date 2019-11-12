@@ -34,7 +34,7 @@ namespace com {
 				template<class StackAlloc> struct _CoroutineContext {
 					template<class Coro, class F>
 					static boost::context::continuation startCoroutine(Coro& bdc, F & f, size_t stackSize){
-						return boost::context::callcc(std::allocator_arg, StackAlloc(stackSize), [&](boost::context::continuation && c){
+						return boost::context::callcc(std::allocator_arg, StackAlloc(stackSize), [&bdc,f](boost::context::continuation && c){
 							typename Coro::Yield yield(bdc, std::move(c));
 							FinishCoroutine<Coro>::apply(yield,f);
 							return std::move(yield.to_);
