@@ -48,7 +48,7 @@ namespace com {
 				};
 
 				template<typename T>
-				using AlignedFor = aligned_storage_t<sizeof(T), alignof(T)>
+				using AlignedFor = typename std::aligned_storage<sizeof(T), alignof(T)>::type;
 
 				template<typename T>
 				class AlignedMaybeUninitializedDeleter {
@@ -64,7 +64,7 @@ namespace com {
 					void reset() { initialized_ = std::make_unique<bool>(false); }
 					bool& initialized() { return *initialized_; }
 
-					void operator()(T *t) const {
+					void operator()(T *t) {
 						// I *think* this is correct, but could use a language lawyer
 						if(initialized_) {
 							if(*initialized_) {
@@ -111,7 +111,6 @@ namespace com {
 					
 				public:
 					class Yield : public YieldVoid {
-						using YieldVoid::handle_;
 						R* ret_; // Contractually, this must not be null
 						bool& rInit_; // The storage for this field is on the heap
 					public:
