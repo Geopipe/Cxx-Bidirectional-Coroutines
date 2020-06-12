@@ -19,6 +19,8 @@
  *
  ************************************************************************************/
 
+#include <iostream>
+
 #include <tuple>
 #include <type_traits>
 #include <utility>
@@ -54,13 +56,22 @@ namespace com {
 					using YieldVoid = typename BidirectionalCoroutine<void, Args...>::Yield;
 					
 				public:
+					constexpr static const struct NonDefaultReturnInitialization { 
+						/* 
+						 * A type tag for when we want a varargs constructor for ret_, 
+						 * but don't want a non-default stack-size
+						 */
+					} non_default_return_initialization = NonDefaultReturnInitialization();
+
 					class Yield : public YieldVoid {
 						using YieldVoid::handle_;
 					public:
 						Yield(BidirectionalCoroutine<R, Args...> &handle, boost::context::continuation && to) : YieldVoid(handle, std::move(to)) {}
 						
 						template<class RP> std::tuple<Args...>& operator()(RP&& r) {
-							static_cast<BidirectionalCoroutine<R,Args...> &>(handle_).ret_ = std::forward<RP>(r);
+							BidirectionalCoroutine<R,Args...> &derivedHandle = static_cast<BidirectionalCoroutine<R,Args...> &>(handle_);
+							std::cout << "Coroutine handle points to " << (void*)&derivedHandle << std::endl;
+							derivedHandle.ret_ = std::forward<RP>(r);
 							return (*(YieldVoid*)this)();
 						}
 						using YieldVoid::operator();
@@ -68,8 +79,19 @@ namespace com {
 						
 					};
 					
-					template<class F> BidirectionalCoroutine(F f, size_t stackSize = traits_type::default_size()) : BidirectionalCoroutine<void, Args...>(detail::_CoroutineContext<StackAlloc>::startCoroutine(*this, f, stackSize)) {}
-					
+					template<class F, class ...RArgs>
+					BidirectionalCoroutine(F f, size_t stackSize, RArgs&& ...rArgs) 
+					: BidirectionalCoroutine<void, Args...>(detail::_CoroutineContext<StackAlloc>::startCoroutine(*this, f, stackSize))
+				    , ret_(std::forward<RArgs>(rArgs)...)	{}
+
+					template<class F, class ...RArgs>
+					BidirectionalCoroutine(F&& f, NonDefaultReturnInitialization, RArgs&& ...rArgs)
+					: BidirectionalCoroutine<R, Args...>(std::forward<F>(f), traits_type::default_size(), std::forward<RArgs>(rArgs)...) {}
+				
+					template<class F>
+					BidirectionalCoroutine(F&& f)
+					: BidirectionalCoroutine<R, Args...>(std::forward<F>(f), non_default_return_initialization) {}
+
 					R operator()(Args ...args){
 						(*(BidirectionalCoroutine<void, Args...>*)(this))(args...);
 						return ret_;
