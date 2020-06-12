@@ -20,7 +20,9 @@
  ************************************************************************************/
 
 #include <iostream>
-
+#include <memory>
+#include <new>
+#include <stdexcept>
 #include <tuple>
 #include <type_traits>
 #include <utility>
@@ -44,34 +46,83 @@ namespace com {
 						});
 					}
 				};
+
+				template<typename T>
+				using AlignedFor = aligned_storage_t<sizeof(T), alignof(T)>
+
+				template<typename T>
+				class AlignedMaybeUninitializedDeleter {
+					std::unique_ptr<bool> initialized_;
+				public:
+					AlignedMaybeUninitializedDeleter() : initialized_(std::make_unique<bool>(false)) {}
+					AlignedMaybeUninitializedDeleter(const AlignedMaybeUninitializedDeleter&) = delete;
+					AlignedMaybeUninitializedDeleter& operator=(const AlignedMaybeUninitializedDeleter&) = delete;
+					AlignedMaybeUninitializedDeleter(AlignedMaybeUninitializedDeleter&& other) = default; 
+					AlignedMaybeUninitializedDeleter& operator=(AlignedMaybeUninitializedDeleter&&) = default;
+
+					void initialize() { *initialized_ = true; }
+					void reset() { initialized_ = std::make_unique<bool>(false); }
+					bool& initialized() { return *initialized_; }
+
+					void operator()(T *t) const {
+						// I *think* this is correct, but could use a language lawyer
+						if(initialized_) {
+							if(*initialized_) {
+								t->~T();
+							}
+							auto storage = std::launder(reinterpret_cast<AlignedFor<T>*>(t));
+							delete storage;
+							initialized_ = nullptr;
+						} else {
+							throw std::runtime_error("An AlignedMaybeUninitializedDeleter may be used at most once");
+						}
+					}
+				};
+
+				template<typename T>
+				using UniqueMaybePtr = std::unique_ptr<T, AlignedMaybeUninitializedDeleter<T> >;
+
+				template<typename T>
+				UniqueMaybePtr<T> make_unique_uninitialized() {
+					return UniqueMaybePtr<T>(std::launder(reinterpret_cast<T*>(new AlignedFor<T>)));
+				}
+
+				template<typename T, typename ...Args>
+				T& emplaceMaybeUninitialized(T* t, bool& initialized, Args&& ...args) {
+					if(initialized) {
+						t->~T();
+					}
+					new (t) T(std::forward<Args>(args)...);
+					initialized = true;
+					return *t;
+				}
+
 			}
 			
 			template<class StackAlloc = boost::context::fixedsize_stack>
 			struct CoroutineContext {
 				using traits_type = typename StackAlloc::traits_type;
 				
-				template<class R, class ...Args> class BidirectionalCoroutine : protected BidirectionalCoroutine<void, Args...> {
-					R ret_;
+				template<class R, class ...Args>
+				class BidirectionalCoroutine : protected BidirectionalCoroutine<void, Args...> {
+					detail::UniqueMaybePtr<R> ret_;
 				protected:
 					using YieldVoid = typename BidirectionalCoroutine<void, Args...>::Yield;
 					
 				public:
-					constexpr static const struct NonDefaultReturnInitialization { 
-						/* 
-						 * A type tag for when we want a varargs constructor for ret_, 
-						 * but don't want a non-default stack-size
-						 */
-					} non_default_return_initialization = NonDefaultReturnInitialization();
-
 					class Yield : public YieldVoid {
 						using YieldVoid::handle_;
+						R* ret_; // Contractually, this must not be null
+						bool& rInit_; // The storage for this field is on the heap
 					public:
-						Yield(BidirectionalCoroutine<R, Args...> &handle, boost::context::continuation && to) : YieldVoid(handle, std::move(to)) {}
+						Yield(BidirectionalCoroutine<R, Args...> &handle, boost::context::continuation && to) 
+						: YieldVoid(handle, std::move(to))
+					   	, ret_(handle.ret_.get())
+						, rInit_(handle.ret_.get_deleter().initialized()) {}
 						
-						template<class RP> std::tuple<Args...>& operator()(RP&& r) {
-							BidirectionalCoroutine<R,Args...> &derivedHandle = static_cast<BidirectionalCoroutine<R,Args...> &>(handle_);
-							std::cout << "Coroutine handle points to " << (void*)&derivedHandle << std::endl;
-							derivedHandle.ret_ = std::forward<RP>(r);
+						template<class RP>
+						std::tuple<Args...>& operator()(RP&& r) {
+							detail::emplaceMaybeUninitialized(ret_, rInit_, std::forward<RP>(r));
 							return (*(YieldVoid*)this)();
 						}
 						using YieldVoid::operator();
@@ -79,22 +130,18 @@ namespace com {
 						
 					};
 					
-					template<class F, class ...RArgs>
-					BidirectionalCoroutine(F f, size_t stackSize, RArgs&& ...rArgs) 
-					: BidirectionalCoroutine<void, Args...>(detail::_CoroutineContext<StackAlloc>::startCoroutine(*this, f, stackSize))
-				    , ret_(std::forward<RArgs>(rArgs)...)	{}
-
-					template<class F, class ...RArgs>
-					BidirectionalCoroutine(F&& f, NonDefaultReturnInitialization, RArgs&& ...rArgs)
-					: BidirectionalCoroutine<R, Args...>(std::forward<F>(f), traits_type::default_size(), std::forward<RArgs>(rArgs)...) {}
-				
 					template<class F>
-					BidirectionalCoroutine(F&& f)
-					: BidirectionalCoroutine<R, Args...>(std::forward<F>(f), non_default_return_initialization) {}
+					BidirectionalCoroutine(F f, size_t stackSize = traits_type::default_size()) 
+					: BidirectionalCoroutine<void, Args...>(detail::_CoroutineContext<StackAlloc>::startCoroutine(*this, f, stackSize))
+				    , ret_(detail::make_unique_uninitialized<R>())	{}
 
-					R operator()(Args ...args){
-						(*(BidirectionalCoroutine<void, Args...>*)(this))(args...);
-						return ret_;
+					R& operator()(Args&& ...args) {
+						(*(BidirectionalCoroutine<void, Args...>*)(this))(std::forward<Args>(args)...);
+						// If ret_'s not yet initialized, all hell is about to break loose.
+						// This can be checked by inspecting the deleter's fields (or by proxy, the yield)
+						// At some later point, we should restructure the preamble so that
+						// a void-yield is not possible after construction completes.
+						return *ret_;
 					}
 					
 					explicit operator bool() const {
@@ -103,35 +150,40 @@ namespace com {
 					
 				};
 				
-				template<class ...Args> class BidirectionalCoroutine<void, Args...> {
+				template<class ...Args>
+				class BidirectionalCoroutine<void, Args...> {
 					boost::context::continuation next_;
-					std::tuple<Args...> args_;
+					detail::UniqueMaybePtr<std::tuple<Args...> > args_;
 				protected:
-					BidirectionalCoroutine(boost::context::continuation && next) : next_(std::move(next)) {}
+					BidirectionalCoroutine(boost::context::continuation && next)
+					: next_(std::move(next))
+				   	, args_(detail::make_unique_uninitialized<std::tuple<Args...> >()) {}
 				public:
 					class Yield {
 						template<class Rp, class ...ArgsP>
 						friend class BidirectionalCoroutine;
 						friend struct detail::_CoroutineContext<StackAlloc>;
 						
-						BidirectionalCoroutine<void, Args...> &handle_;
+						std::tuple<Args...> *args_;
 						boost::context::continuation to_;
 					public:
-						Yield(BidirectionalCoroutine<void, Args...> &handle, boost::context::continuation && to) : handle_(handle), to_(std::move(to)) {}
+						Yield(BidirectionalCoroutine<void, Args...> &handle, boost::context::continuation && to) 
+						: args_(handle.args_.get())
+						, to_(std::move(to)) {}
 						
 						std::tuple<Args...>& operator()() {
 							to_ = to_.resume();
-							return handle_.args_;
+							return *args_;
 						}
 						
 					};
 					
-					template<class F> BidirectionalCoroutine(F f, size_t stackSize = traits_type::default_size()) {
-						next_ = detail::_CoroutineContext<StackAlloc>::startCoroutine(*this, f, stackSize);
-					}
+					template<class F>
+					BidirectionalCoroutine(F f, size_t stackSize = traits_type::default_size())
+					: BidirectionalCoroutine<void, Args...>(detail::_CoroutineContext<StackAlloc>::startCoroutine(*this, f, stackSize)) {}
 					
-					void operator()(Args ...args){
-						args_ = std::make_tuple(args...);
+					void operator()(Args&& ...args){
+						detail::emplaceMaybeUninitialized(args_.get(), args_.get_deleter().initialized(), std::forward<Args>(args)...);
 						next_ = next_.resume();
 					}
 					
@@ -163,9 +215,10 @@ namespace com {
 					
 					
 					template<class F, typename std::enable_if<!std::is_void<RType<F&,Yield&>>::value && !std::is_assignable<RType<F&, Yield&>, R>::value,int>::type =0>
-					static void apply(Yield & yield, F & f) {
-						static_assert(std::is_void<RType<F&,Yield&>>::value || std::is_assignable<RType<F&, Yield&>, R>::value,"return type of f must be void, or assignable to the return type of this coroutine");
-						f(yield); // This will never execute.
+					static [[noreturn]] void apply(Yield & yield, F & f) {
+						static_assert(	std::is_void<RType<F&,Yield&>>::value || std::is_assignable<RType<F&, Yield&>, R>::value,
+										"return type of f must be void, or assignable to the return type of this coroutine");
+						throw std::runtime_error("Contradiction: enable_if should only succeed if static_assert fails");
 					}
 				};
 			}
