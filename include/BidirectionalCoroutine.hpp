@@ -51,6 +51,7 @@ namespace com {
 
 				template<typename T>
 				class AlignedMaybeUninitializedDeleter {
+					// Must be on the heap to cooperate with yield
 					std::unique_ptr<bool> initialized_;
 				public:
 					AlignedMaybeUninitializedDeleter() : initialized_(std::make_unique<bool>(false)) {}
@@ -59,23 +60,25 @@ namespace com {
 					AlignedMaybeUninitializedDeleter(AlignedMaybeUninitializedDeleter&& other) = default; 
 					AlignedMaybeUninitializedDeleter& operator=(AlignedMaybeUninitializedDeleter&&) = default;
 
-					void initialize() { *initialized_ = true; }
+					void initialize() { initialized() = true; }
 					void reset() { initialized_ = std::make_unique<bool>(false); }
-					bool& initialized() { return *initialized_; }
+					bool& initialized() {
+						if(initialized_) {
+							return *initialized_;
+						} else {
+							throw std::runtime_error("An AlignedMaybeUninitializedDeleter may be used at most once");
+						}
+					}
 
 					void operator()(T *t) {
 						// I *think* this is correct, but could use a language lawyer
 						if(t) {
-							if(initialized_) {
-								if(*initialized_) {
-									t->~T();
-								}
-								auto storage = std::launder(reinterpret_cast<AlignedFor<T>*>(t));
-								delete storage;
-								initialized_ = nullptr;
-							} else {
-								throw std::runtime_error("An AlignedMaybeUninitializedDeleter may be used at most once");
+							if(initialized()) {
+								t->~T();
 							}
+							auto storage = std::launder(reinterpret_cast<AlignedFor<T>*>(t));
+							delete storage;
+							initialized_ = nullptr;
 						}
 					}
 				};
@@ -114,7 +117,7 @@ namespace com {
 				public:
 					class Yield : public YieldVoid {
 						R* ret_; // Contractually, this must not be null
-						bool& rInit_; // The storage for this field is on the heap
+						bool& rInit_; // The storage for this field is on the heap (cf. constructor's implementation)
 					public:
 						Yield(BidirectionalCoroutine<R, Args...> &handle, boost::context::continuation && to) 
 						: YieldVoid(handle, std::move(to))
@@ -142,9 +145,10 @@ namespace com {
 					BidirectionalCoroutine(const BidirectionalCoroutine& other) = delete;
 					BidirectionalCoroutine& operator=(BidirectionalCoroutine&& other) = default;
 					BidirectionalCoroutine& operator=(const BidirectionalCoroutine& other) = delete;
-
-					R& operator()(Args&& ...args) {
-						(*(BidirectionalCoroutine<void, Args...>*)(this))(std::forward<Args>(args)...);
+					
+					template<typename ...ArgsP>
+					R& operator()(ArgsP&& ...args) {
+						(*(BidirectionalCoroutine<void, Args...>*)(this))(std::forward<ArgsP>(args)...);
 						// If ret_'s not yet initialized, all hell is about to break loose.
 						// This can be checked by inspecting the deleter's fields (or by proxy, the yield)
 						// At some later point, we should restructure the preamble so that
@@ -197,8 +201,9 @@ namespace com {
 					BidirectionalCoroutine& operator=(BidirectionalCoroutine&& other) = default;
 					BidirectionalCoroutine& operator=(const BidirectionalCoroutine& other) = delete;
 					
-					void operator()(Args&& ...args){
-						detail::emplaceMaybeUninitialized(args_.get(), args_.get_deleter().initialized(), std::forward<Args>(args)...);
+					template<typename ...ArgsP>
+					void operator()(ArgsP&& ...args){
+						detail::emplaceMaybeUninitialized(args_.get(), args_.get_deleter().initialized(), std::forward<ArgsP>(args)...);
 						next_ = next_.resume();
 					}
 					
@@ -217,20 +222,20 @@ namespace com {
 					template<class F, class ...FArgs> using RType = decltype((std::declval<F>())(std::declval<FArgs>() ...));
 					
 				public:
-					template<class F, typename std::enable_if<std::is_assignable<RType<F&, Yield&>, R>::value,int>::type = 0>
+					template<class F, std::enable_if_t<std::is_assignable<RType<F&, Yield&>, R>::value,int> = 0>
 					static void apply(Yield & yield, F & f) {
 						yield(f(yield)); // If our lambda returns a value, *and* we know what to do with it, assign it
 					}
 					
 					
-					template<class F, typename std::enable_if<std::is_void<RType<F&,Yield&>>::value,int>::type =0>
+					template<class F, std::enable_if_t<std::is_void<RType<F&,Yield&>>::value,int> =0>
 					static void apply(Yield & yield, F & f) {
 						f(yield); // If our lambda doesn't return a value, ignore it.
 					}
 					
 					
-					template<class F, typename std::enable_if<!std::is_void<RType<F&,Yield&>>::value && !std::is_assignable<RType<F&, Yield&>, R>::value,int>::type =0>
-					static void apply(Yield & yield, F & f) {
+					template<class F, std::enable_if_t<!std::is_void<RType<F&,Yield&>>::value && !std::is_assignable<RType<F&, Yield&>, R>::value,int> =0>
+					[[noreturn]] static void apply([[maybe_unused]] Yield & yield, [[maybe_unused]] F & f) {
 						static_assert(	std::is_void<RType<F&,Yield&>>::value || std::is_assignable<RType<F&, Yield&>, R>::value,
 										"return type of f must be void, or assignable to the return type of this coroutine");
 						throw std::runtime_error("Contradiction: enable_if should only succeed if static_assert fails");
