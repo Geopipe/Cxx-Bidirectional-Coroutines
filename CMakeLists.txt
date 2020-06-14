@@ -4,9 +4,10 @@ project(BidirectionalCoroutineExamples)
 
 foreach(lang C CXX)
 	set(CMAKE_${lang}_STANDARD_REQUIRED ON)
-	set(CMAKE_${lang}_STANDARD 11)
 	set(CMAKE_${lang}_EXTENSIONS OFF)
 endforeach(lang)
+set(CMAKE_C_STANDARD 11)
+set(CMAKE_CXX_STANDARD 17)
 
 add_definitions(-Wall -Wextra) # This is a hack, but it should work consistently
 
