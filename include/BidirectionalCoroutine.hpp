@@ -19,6 +19,7 @@
  *
  ************************************************************************************/
 
+#include <iostream>
 #include <memory>
 #include <new>
 #include <stdexcept>
@@ -79,6 +80,8 @@ namespace com {
 							auto storage = std::launder(reinterpret_cast<AlignedFor<T>*>(t));
 							delete storage;
 							initialized_ = nullptr;
+						} else {
+							std::cerr << "Warning: deleter called on nullptr. this is a no-op\n" << std::endl;
 						}
 					}
 				};
@@ -138,12 +141,28 @@ namespace com {
 					BidirectionalCoroutine(F f, size_t stackSize = traits_type::default_size()) 
 					: BidirectionalCoroutine<void, Args...>()
 				   	, ret_(detail::make_unique_uninitialized<R>()) {
+						std::cerr << "Constructing " << (void*)this << std::endl;
+						std::cerr << "ret_ memory at " << (void*)(ret_.get()) << " initialized? " << (void*)(&ret_.get_deleter().initialized()) << std::endl;
 						next_ = detail::_CoroutineContext<StackAlloc>::startCoroutine(*this, f, stackSize);
 					}
 
-					BidirectionalCoroutine(BidirectionalCoroutine&& other) = default;
+					BidirectionalCoroutine(BidirectionalCoroutine&& other) // = default;
+					: BidirectionalCoroutine<void, Args...>(std::move((BidirectionalCoroutine<void, Args...>&&)other))
+					, ret_(std::move(other.ret_)) {
+						std::cerr << "Move constructed " << (void*)this << " from " << (void*)&other << std::endl;
+						std::cerr << "ret_ memory at " << (void*)(ret_.get()) << " initialized? " << (void*)(&ret_.get_deleter().initialized()) << std::endl;
+					}
+
 					BidirectionalCoroutine(const BidirectionalCoroutine& other) = delete;
-					BidirectionalCoroutine& operator=(BidirectionalCoroutine&& other) = default;
+					
+					BidirectionalCoroutine& operator=(BidirectionalCoroutine&& other) { //= default;
+						((BidirectionalCoroutine<void, Args...>&)(*this)) = std::move((BidirectionalCoroutine<void, Args...>&&)other);
+						ret_ = std::move(other.ret_);
+						std::cerr << "Move assigned " << (void*)this << " from " << (void*)&other << std::endl;
+						std::cerr << "ret_ memory at " << (void*)(ret_.get()) << " initialized? " << (void*)(&ret_.get_deleter().initialized()) << std::endl;
+						return *this;
+					}
+					
 					BidirectionalCoroutine& operator=(const BidirectionalCoroutine& other) = delete;
 					
 					template<typename ...ArgsP>
@@ -169,7 +188,10 @@ namespace com {
 					boost::context::continuation next_;
 					BidirectionalCoroutine()
 					: args_(detail::make_unique_uninitialized<std::tuple<Args...> >())
-				   	, next_() {}
+				   	, next_() {
+						std::cerr << "Constructing " << (void*)this << std::endl;
+						std::cerr << "args_ memory at " << (void*)(args_.get()) << " initialized? " << (void*)(&args_.get_deleter().initialized()) << std::endl;
+					}
 				public:
 					class Yield {
 						template<class Rp, class ...ArgsP>
@@ -193,12 +215,27 @@ namespace com {
 					template<class F>
 					BidirectionalCoroutine(F f, size_t stackSize = traits_type::default_size())
 					: BidirectionalCoroutine<void, Args...>() {
+						std::cerr << "Booting " << (void*)this << std::endl;
 						next_ = detail::_CoroutineContext<StackAlloc>::startCoroutine(*this, f, stackSize); 
 					}
 
-					BidirectionalCoroutine(BidirectionalCoroutine&& other) = default;
+					BidirectionalCoroutine(BidirectionalCoroutine&& other) //= default;
+					: args_(std::move(other.args_))
+					, next_(std::move(other.next_)) {
+						std::cerr << "Move constructed " << (void*)this << " from " << (void*)&other << std::endl;
+						std::cerr << "args_ memory at " << (void*)(args_.get()) << " initialized? " << (void*)(&args_.get_deleter().initialized()) << std::endl;
+					}
+
 					BidirectionalCoroutine(const BidirectionalCoroutine& other) = delete;
-					BidirectionalCoroutine& operator=(BidirectionalCoroutine&& other) = default;
+
+					BidirectionalCoroutine& operator=(BidirectionalCoroutine&& other) { //= default;
+						args_ = std::move(other.args_);
+						next_ = std::move(other.next_);
+						std::cerr << "Move assigned " << (void*)this << " from " << (void*)&other << std::endl;
+						std::cerr << "args_ memory at " << (void*)(args_.get()) << " initialized? " << (void*)(&args_.get_deleter().initialized()) << std::endl;
+						return *this;
+					}
+
 					BidirectionalCoroutine& operator=(const BidirectionalCoroutine& other) = delete;
 					
 					template<typename ...ArgsP>
