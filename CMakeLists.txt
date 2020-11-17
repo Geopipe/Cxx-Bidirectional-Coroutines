@@ -1,22 +1,26 @@
 cmake_minimum_required(VERSION 3.7)
 
-project(BidirectionalCoroutineExamples)
-
-foreach(lang C CXX)
-	set(CMAKE_${lang}_STANDARD_REQUIRED ON)
-	set(CMAKE_${lang}_EXTENSIONS OFF)
-endforeach(lang)
-set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_STANDARD_REQUIRED ON)
 
-add_definitions(-Wall -Wextra) # This is a hack, but it should work consistently
+project(BidirectionalCoroutines)
 
 find_package(Boost 1.65 COMPONENTS context)
-include_directories(${Boost_INCLUDE_DIRS})
 
-include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
+set(coroutine_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/include)
+set(base_path ${coroutine_INCLUDE_DIR}/coroutine)
+message(STATUS "base_path = ${base_path}")
 
+IF(TARGET functional-cxx)
+	message(STATUS "functional-cxx found externally")
+ELSE()
+	add_subdirectory(${CMAKE_SOURCE_DIR}/deps/Functional-Cxx)
+ENDIF()
 
-add_executable(testcoro ${CMAKE_CURRENT_SOURCE_DIR}/main.cpp)
-target_link_libraries(testcoro Boost::context)
+add_library(cxx-bidirectional-coroutines INTERFACE)
+target_sources(cxx-bidirectional-coroutines INTERFACE ${base_path}/BidirectionalCoroutine.hpp)
+target_include_directories(cxx-bidirectional-coroutines INTERFACE ${coroutine_INCLUDE_DIR} ${Boost_INCLUDE_DIRS})
+target_link_libraries(cxx-bidirectional-coroutines INTERFACE functional-cxx Boost::context)
 
+add_subdirectory(example)

@@ -1,6 +1,6 @@
 #include <iostream>
 
-#include <BidirectionalCoroutine.hpp>
+#include <coroutine/BidirectionalCoroutine.hpp>
 
 template<typename R, typename ...Args>
 using BidirectionalCoroutine = com::geopipe::functional::CoroutineContext<>::BidirectionalCoroutine<R, Args...>;
