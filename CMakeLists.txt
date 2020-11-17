@@ -19,7 +19,7 @@ ELSE()
 ENDIF()
 
 add_library(cxx-bidirectional-coroutines INTERFACE)
-target_sources(cxx-bidirectional-coroutines INTERFACE ${base_path}/BidirectionalCoroutine.hpp)
+target_sources(cxx-bidirectional-coroutines INTERFACE ${base_path}/BidirectionalCoroutine.hpp ${base_path}/nullary-coroutine-stream.hpp)
 target_include_directories(cxx-bidirectional-coroutines INTERFACE ${coroutine_INCLUDE_DIR} ${Boost_INCLUDE_DIRS})
 target_link_libraries(cxx-bidirectional-coroutines INTERFACE functional-cxx Boost::context)
 
