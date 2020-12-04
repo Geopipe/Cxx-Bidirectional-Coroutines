@@ -28,7 +28,7 @@
 
 #include <boost/context/continuation.hpp>
 
-#include <functional/support/memory-hacks.hpp>
+#include <functional-cxx/support/memory-hacks.hpp>
 
 namespace com {
 	namespace geopipe {

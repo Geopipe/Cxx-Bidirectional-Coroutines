@@ -1,9 +1,13 @@
 #include <iostream>
 
-#include <coroutine/BidirectionalCoroutine.hpp>
+#include <cxx-bidirectional-coroutines/bidirectional-coroutine.hpp>
+#include <cxx-bidirectional-coroutines/nullary-coroutine-stream.hpp>
 
 template<typename R, typename ...Args>
 using BidirectionalCoroutine = com::geopipe::functional::CoroutineContext<>::BidirectionalCoroutine<R, Args...>;
+
+template<typename Coro>
+using NullaryCoroutineStreamF = com::geopipe::functional::NullaryCoroutineStreamF<Coro>;
 
 class Fibonacci : public BidirectionalCoroutine<int> {
 public:
@@ -40,9 +44,10 @@ public:
 int main(int argc, const char * argv[]) {
 	{
 		std::cout << "Fibs" << std::endl;
-		Fibonacci fib;
+		auto fib = NullaryCoroutineStreamF<Fibonacci>(std::make_unique<Fibonacci>())();
 		for(size_t j = 0; j < 10; ++j) {
-			std::cout << fib() << std ::endl;
+			std::cout << fib->head() << std ::endl;
+			fib = fib->tail();
 		}
 	}
 	

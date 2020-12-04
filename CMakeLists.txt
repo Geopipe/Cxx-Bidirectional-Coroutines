@@ -9,7 +9,7 @@ project(BidirectionalCoroutines)
 find_package(Boost 1.65 COMPONENTS context)
 
 set(coroutine_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/include)
-set(base_path ${coroutine_INCLUDE_DIR}/coroutine)
+set(base_path ${coroutine_INCLUDE_DIR}/cxx-bidirectional-coroutines)
 message(STATUS "base_path = ${base_path}")
 
 IF(TARGET functional-cxx)
@@ -19,7 +19,7 @@ ELSE()
 ENDIF()
 
 add_library(cxx-bidirectional-coroutines INTERFACE)
-target_sources(cxx-bidirectional-coroutines INTERFACE ${base_path}/BidirectionalCoroutine.hpp ${base_path}/nullary-coroutine-stream.hpp)
+target_sources(cxx-bidirectional-coroutines INTERFACE ${base_path}/bidirectional-coroutine.hpp ${base_path}/nullary-coroutine-stream.hpp)
 target_include_directories(cxx-bidirectional-coroutines INTERFACE ${coroutine_INCLUDE_DIR} ${Boost_INCLUDE_DIRS})
 target_link_libraries(cxx-bidirectional-coroutines INTERFACE functional-cxx Boost::context)
 
