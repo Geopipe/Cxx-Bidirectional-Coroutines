@@ -28,6 +28,8 @@
 
 #include <boost/context/continuation.hpp>
 
+#include <functional-cxx/support/memory-hacks.hpp>
+
 namespace com {
 	namespace geopipe {
 		namespace functional {
@@ -45,62 +47,6 @@ namespace com {
 						});
 					}
 				};
-
-				template<typename T>
-				using AlignedFor = typename std::aligned_storage<sizeof(T), alignof(T)>::type;
-
-				template<typename T>
-				class AlignedMaybeUninitializedDeleter {
-					// Must be on the heap to cooperate with yield
-					std::unique_ptr<bool> initialized_;
-				public:
-					AlignedMaybeUninitializedDeleter() : initialized_(std::make_unique<bool>(false)) {}
-					AlignedMaybeUninitializedDeleter(const AlignedMaybeUninitializedDeleter&) = delete;
-					AlignedMaybeUninitializedDeleter& operator=(const AlignedMaybeUninitializedDeleter&) = delete;
-					AlignedMaybeUninitializedDeleter(AlignedMaybeUninitializedDeleter&& other) = default; 
-					AlignedMaybeUninitializedDeleter& operator=(AlignedMaybeUninitializedDeleter&&) = default;
-
-					void initialize() { initialized() = true; }
-					void reset() { initialized_ = std::make_unique<bool>(false); }
-					bool& initialized() {
-						if(initialized_) {
-							return *initialized_;
-						} else {
-							throw std::runtime_error("An AlignedMaybeUninitializedDeleter may be used at most once");
-						}
-					}
-
-					void operator()(T *t) {
-						// I *think* this is correct, but could use a language lawyer
-						if(t) {
-							if(initialized()) {
-								t->~T();
-							}
-							auto storage = std::launder(reinterpret_cast<AlignedFor<T>*>(t));
-							delete storage;
-							initialized_ = nullptr;
-						}
-					}
-				};
-
-				template<typename T>
-				using UniqueMaybePtr = std::unique_ptr<T, AlignedMaybeUninitializedDeleter<T> >;
-
-				template<typename T>
-				UniqueMaybePtr<T> make_unique_uninitialized() {
-					return UniqueMaybePtr<T>(std::launder(reinterpret_cast<T*>(new AlignedFor<T>)));
-				}
-
-				template<typename T, typename ...Args>
-				T& emplaceMaybeUninitialized(T* t, bool& initialized, Args&& ...args) {
-					if(initialized) {
-						t->~T();
-					}
-					new (t) T(std::forward<Args>(args)...);
-					initialized = true;
-					return *t;
-				}
-
 			}
 			
 			template<class StackAlloc = boost::context::fixedsize_stack>
