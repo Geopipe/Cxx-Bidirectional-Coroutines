@@ -93,7 +93,21 @@ namespace com {
 				class BidirectionalCoroutine : protected BidirectionalCoroutine<void, Args...> {
 					detail::UniqueMaybePtr<R> ret_; ///< Possibly uninitialized storage for the most recently yielded value.
 				protected:
-					using YieldVoid = typename BidirectionalCoroutine<void, Args...>::Yield; ///< `Yield`ing something will rely on some of the logic for `Yield`ing nothing.
+					/*******************************************************************
+					 * `Yield`ing something will rely on some of the logic for `Yield`ing 
+					 * nothing. Additionally, the body of each coroutine should explicitly
+					 * perform a single `void` `Yield` after performing any setup, to
+					 * return control to the coroutine's constructor. Otherwise the
+					 * first yielded value will be lost.
+					 * cf. also documentation of `BidirectionalCoroutine<R, Args...>::BidirectionalCoroutine` 
+					 * for non-`void` `R`.
+					 * 
+					 * It would be nice if we could make this explicit invocation
+					 * use-once somehow (i.e. a linear type), and use that first `void` `Yield`
+					 * to obtain our non-`void` `Yield` for all future invocations,
+					 * but that seems like needlessly complex metaprogramming for now
+					 *******************************************************************/
+					using YieldVoid = typename BidirectionalCoroutine<void, Args...>::Yield; 
 					using BidirectionalCoroutine<void, Args...>::next_;
 					
 				public:
@@ -126,14 +140,6 @@ namespace com {
 							return (*(YieldVoid*)this)();
 						}
 
-						/*******************************************************************
-						 * cf. documentation of `BidirectionalCoroutine<R, Args...>::BidirectionalCoroutine` for non-`void` `R`.
-						 * 
-						 * It would be nice if we could make this explicitly use-once
-						 * somehow (i.e. a linear type), and use that first `void` `Yield`
-						 * to obtain our non-`void` `Yield` for all future invocations,
-						 * but that seems like needlessly complex metaprogramming for now
-						 *******************************************************************/
 						using YieldVoid::operator();
 						
 						
@@ -149,6 +155,7 @@ namespace com {
 					 * to transfer control back to their constructor, or else the first
 					 * `Yield`ed value will be lost in the either. It would be very rude
 					 * to never `Yield` at all.
+					 * 
 					 * @arg stackSize How much space to allow for stack allocations in 
 					 * the coroutine's context before overflowing. The default value
 					 * comes from `boost::context` (or whatever other context trait
