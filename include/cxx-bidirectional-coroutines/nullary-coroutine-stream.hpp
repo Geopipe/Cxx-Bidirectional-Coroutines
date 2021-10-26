@@ -28,8 +28,11 @@
 
 namespace com {
 	namespace geopipe {
+		/**************************************************
+		 * Tools for functional programming
+		 **************************************************/
 		namespace functional {
-
+			/// Memoize the result of a `CoroutineContext::BidirectionalCoroutine` (which is not reusable) as a `Stream` (which is reusable).
 			template<class Coro>
 			class NullaryCoroutineStreamF {
 				std::unique_ptr<Coro> coro_;
@@ -44,8 +47,14 @@ namespace com {
 					}
 				}
 				
+				/********************************************************
+				 * Advance the `CoroutineContext::BidirectionalCoroutine` and return the yielded result
+				 * as a `Stream`. This can only be done once per step of the
+				 * coroutine, so we rely on `Stream`'s memoization semantics
+				 * to preserve the result.
+				 ********************************************************/
 				StreamT operator()() {
-					// This can only be called once.
+					
 					if(coro_ && *coro_) {
 						auto& head = (*coro_)();
 						// finite, non-void coroutines appear to repeat their last yielded value
