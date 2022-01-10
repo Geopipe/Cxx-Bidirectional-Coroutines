@@ -15,7 +15,7 @@ message(STATUS "base_path = ${base_path}")
 IF(TARGET functional-cxx)
 	message(STATUS "functional-cxx found externally")
 ELSE()
-	add_subdirectory(${CMAKE_SOURCE_DIR}/deps/Functional-Cxx)
+	add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/deps/Functional-Cxx)
 ENDIF()
 
 add_library(cxx-bidirectional-coroutines INTERFACE)
